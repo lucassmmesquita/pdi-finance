@@ -5,7 +5,7 @@ Centraliza todos os endpoints da API
 from fastapi import APIRouter
 
 # Importa o router de autenticação existente
-from app.api.v1.endpoints.auth import router as auth_router
+from app.api.auth import router as auth_router
 
 # Importa os novos routers de gestão
 from app.api.executoras import router as executoras_router

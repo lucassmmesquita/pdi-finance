@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "PDI Finance API"
     VERSION: str = "1.0.0"
     DESCRIPTION: str = "Sistema de Controle Orçamentário e Financeiro de Projetos PD&I"
-    API_V1_PREFIX: str = "/api/v1"
+    API_V1_PREFIX: str = "/api"
     
     # Ambiente
     ENVIRONMENT: str = "development"

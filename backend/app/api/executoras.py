@@ -6,46 +6,50 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
+from uuid import UUID  # Adiciona UUID
 
 from app.core.dependencies import get_db, get_current_user
 from app.schemas.user import UserInDB
 
-# Imports dos modelos - ESTRUTURA CORRETA baseada em dependencies.py
+# Imports dos modelos - ESTRUTURA REAL IDENTIFICADA
 from app.models.executora import Executora
-from app.models.projetos import Projeto
+from app.models.projetos import Projeto  # ⚠️ Arquivo se chama project.py (inglês)
 
 # ==========================================
-# SCHEMAS (temporários - mover para schemas.py depois)
+# SCHEMAS (ajustados para estrutura REAL do banco)
 # ==========================================
 
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
+from uuid import UUID
 
 class ExecutoraBase(BaseModel):
-    cnpj: str = Field(..., description="CNPJ da empresa (14 dígitos)")
-    razao_social: str = Field(..., min_length=3, max_length=200)
-    nome_fantasia: Optional[str] = Field(None, max_length=200)
-    endereco: Optional[str] = None
-    telefone: Optional[str] = Field(None, max_length=20)
+    nome: str = Field(..., min_length=3, max_length=200)
+    sigla: str = Field(..., min_length=2, max_length=50)
+    tipo: str = Field(..., max_length=50, description="IREDE, IES, ICT, Outro")
+    cidade: Optional[str] = Field(None, max_length=100)
+    estado: Optional[str] = Field(None, max_length=2)
     email: Optional[str] = Field(None, max_length=200)
+    telefone: Optional[str] = Field(None, max_length=20)
     responsavel: Optional[str] = Field(None, max_length=200)
-    observacoes: Optional[str] = None
 
 class ExecutoraCreate(ExecutoraBase):
     pass
 
 class ExecutoraUpdate(BaseModel):
-    razao_social: Optional[str] = Field(None, min_length=3, max_length=200)
-    nome_fantasia: Optional[str] = Field(None, max_length=200)
-    endereco: Optional[str] = None
-    telefone: Optional[str] = Field(None, max_length=20)
+    nome: Optional[str] = Field(None, min_length=3, max_length=200)
+    sigla: Optional[str] = Field(None, min_length=2, max_length=50)
+    tipo: Optional[str] = Field(None, max_length=50)
+    cidade: Optional[str] = Field(None, max_length=100)
+    estado: Optional[str] = Field(None, max_length=2)
     email: Optional[str] = Field(None, max_length=200)
+    telefone: Optional[str] = Field(None, max_length=20)
     responsavel: Optional[str] = Field(None, max_length=200)
-    observacoes: Optional[str] = None
     ativo: Optional[bool] = None
 
 class ExecutoraResponse(ExecutoraBase):
     id: int
+    uuid: UUID
     ativo: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -112,28 +116,49 @@ def obter_executora(
     return executora
 
 
-@router.get("/cnpj/{cnpj}", response_model=ExecutoraResponse)
-def obter_executora_por_cnpj(
-    cnpj: str,
+@router.get("/sigla/{sigla}", response_model=ExecutoraResponse)
+def obter_executora_por_sigla(
+    sigla: str,
     current_user: UserInDB = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Obtém executora pelo CNPJ
+    Obtém executora pela sigla
     
     **Requer autenticação**
     """
-    # Remove formatação do CNPJ
-    cnpj_limpo = ''.join(filter(str.isdigit, cnpj))
-    
     executora = db.query(Executora).filter(
-        Executora.cnpj == cnpj_limpo
+        Executora.sigla.ilike(sigla)
     ).first()
     
     if not executora:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Executora com CNPJ {cnpj} não encontrada"
+            detail=f"Executora com sigla '{sigla}' não encontrada"
+        )
+    
+    return executora
+
+
+@router.get("/nome/{nome}", response_model=ExecutoraResponse)
+def obter_executora_por_nome(
+    nome: str,
+    current_user: UserInDB = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtém executora pelo nome
+    
+    **Requer autenticação**
+    """
+    executora = db.query(Executora).filter(
+        Executora.nome.ilike(f"%{nome}%")
+    ).first()
+    
+    if not executora:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Executora com nome '{nome}' não encontrada"
         )
     
     return executora
@@ -151,9 +176,9 @@ def criar_executora(
     **Requer autenticação e perfil: Admin ou Gestor**
     
     Validações:
-    - CNPJ único (não pode duplicar)
-    - Razão social obrigatória
-    - CNPJ válido (14 dígitos)
+    - Nome único
+    - Sigla obrigatória
+    - Tipo obrigatório (IREDE, IES, ICT, Outro)
     """
     # Verifica permissão
     if current_user.perfil not in ["Admin", "Gestor"]:
@@ -162,37 +187,27 @@ def criar_executora(
             detail="Apenas Admin ou Gestor podem cadastrar executoras"
         )
     
-    # Limpa CNPJ
-    cnpj_limpo = ''.join(filter(str.isdigit, executora.cnpj))
-    
-    # Valida tamanho do CNPJ
-    if len(cnpj_limpo) != 14:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="CNPJ deve ter 14 dígitos"
-        )
-    
-    # Verifica se CNPJ já existe
+    # Verifica se nome já existe
     existe = db.query(Executora).filter(
-        Executora.cnpj == cnpj_limpo
+        Executora.nome == executora.nome
     ).first()
     
     if existe:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Executora com CNPJ {executora.cnpj} já cadastrada"
+            detail=f"Executora com nome '{executora.nome}' já cadastrada"
         )
     
     # Cria nova executora
     db_executora = Executora(
-        cnpj=cnpj_limpo,
-        razao_social=executora.razao_social,
-        nome_fantasia=executora.nome_fantasia,
-        endereco=executora.endereco,
-        telefone=executora.telefone,
+        nome=executora.nome,
+        sigla=executora.sigla,
+        tipo=executora.tipo,
+        cidade=executora.cidade,
+        estado=executora.estado,
         email=executora.email,
+        telefone=executora.telefone,
         responsavel=executora.responsavel,
-        observacoes=executora.observacoes,
         ativo=True,
         created_at=datetime.now()
     )
@@ -215,8 +230,6 @@ def atualizar_executora(
     Atualiza dados de uma executora existente
     
     **Requer autenticação e perfil: Admin ou Gestor**
-    
-    Observação: CNPJ não pode ser alterado
     """
     # Verifica permissão
     if current_user.perfil not in ["Admin", "Gestor"]:
@@ -237,10 +250,6 @@ def atualizar_executora(
     
     # Atualiza campos fornecidos
     update_data = executora.model_dump(exclude_unset=True)
-    
-    # Remove CNPJ se tentou alterar
-    if 'cnpj' in update_data:
-        del update_data['cnpj']
     
     for field, value in update_data.items():
         setattr(db_executora, field, value)
@@ -492,7 +501,10 @@ def obter_estatisticas_executora(
     
     return {
         "executora_id": executora_id,
-        "razao_social": executora.razao_social,
+        "nome": executora.nome,
+        "sigla": executora.sigla,
+        "tipo": executora.tipo,
+        "localizacao": f"{executora.cidade}/{executora.estado}" if executora.cidade and executora.estado else None,
         "total_projetos": total_projetos,
         "projetos_por_status": {
             status: qtd for status, qtd in projetos_status
